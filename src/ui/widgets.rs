@@ -76,7 +76,7 @@ pub(super) fn paint_cover_with_thumbnail(
     if !ui.is_rect_visible(rect) {
         return;
     }
-    let corner = CornerRadius::same(radius.min(127.0) as u8);
+    let corner = theme::corner(ui, radius.min(127.0) as u8);
     let loaded = sources
         .requested
         .is_some_and(|url| paint_cover_url(ui, url, rect, corner, art, false))
@@ -183,7 +183,7 @@ fn paint_cover_texture(
 
 /// A soft drop shadow under a cover or card.
 pub fn paint_shadow(ui: &Ui, palette: &Palette, rect: Rect, radius: f32) {
-    if !palette.dark {
+    if !palette.dark || theme::is_pixel(ui.ctx()) {
         return;
     }
     let shadow = egui::epaint::Shadow {
@@ -2365,7 +2365,7 @@ pub fn card(
         if hovered {
             ui.painter().rect_filled(
                 rect,
-                CornerRadius::same(theme::RADIUS),
+                theme::corner(ui, theme::RADIUS),
                 palette
                     .surface_hover
                     .gamma_multiply(if palette.dark { 0.8 } else { 1.0 }),
@@ -2674,16 +2674,26 @@ pub fn thin_slider(
         } else {
             Color32::from_black_alpha(40)
         };
-        ui.painter().rect_filled(bar, 2.0, track_color);
+        ui.painter()
+            .rect_filled(bar, theme::rounding(ui, 2.0), track_color);
         let filled = Rect::from_min_max(
             bar.min,
             pos2(bar.left() + bar.width() * shown.clamp(0.0, 1.0), bar.max.y),
         );
         let fill = if active { palette.accent } else { palette.text };
-        ui.painter().rect_filled(filled, 2.0, fill);
+        ui.painter()
+            .rect_filled(filled, theme::rounding(ui, 2.0), fill);
         if active {
-            ui.painter()
-                .circle_filled(pos2(filled.right(), bar.center().y), 6.0, palette.text);
+            let center = pos2(filled.right(), bar.center().y);
+            if theme::is_pixel(ui.ctx()) {
+                ui.painter().rect_filled(
+                    Rect::from_center_size(center, Vec2::splat(8.0)),
+                    0.0,
+                    palette.text,
+                );
+            } else {
+                ui.painter().circle_filled(center, 6.0, palette.text);
+            }
         }
     }
     event
@@ -2799,11 +2809,12 @@ pub fn search_field(
     } else {
         palette.surface
     };
-    ui.painter().rect_filled(rect, height / 2.0, fill);
+    ui.painter()
+        .rect_filled(rect, theme::rounding(ui, height / 2.0), fill);
     if has_focus {
         ui.painter().rect_stroke(
             rect,
-            height / 2.0,
+            theme::rounding(ui, height / 2.0),
             Stroke::new(1.5, palette.text.gamma_multiply(0.6)),
             egui::StrokeKind::Inside,
         );
@@ -3014,7 +3025,7 @@ pub fn labeled_field(
             ui.add_space(6.0);
             Frame::new()
                 .fill(palette.surface)
-                .corner_radius(CornerRadius::same(8))
+                .corner_radius(theme::corner(ui, 8))
                 .inner_margin(Margin::symmetric(12, 10))
                 .show(ui, |ui| {
                     text_edit(

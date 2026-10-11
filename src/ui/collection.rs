@@ -67,7 +67,9 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         .thumbnail
         .and_then(|uri| app.softened_covers.texture(ui.ctx(), &art, uri));
     ui.add_space(12.0);
-    let cover_size = if ui.available_width() > 720.0 {
+    let cover_size = if app.settings.is_raccoon_hollow() {
+        128.0
+    } else if ui.available_width() > 720.0 {
         212.0
     } else {
         160.0
@@ -75,7 +77,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
-        let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
+        let radius = theme::rounding(ui, if hero.round { cover_size / 2.0 } else { 6.0 });
         widgets::paint_shadow(ui, &palette, rect, radius);
         if hero.liked {
             super::sidebar::liked_cover(ui, rect, radius);
@@ -101,8 +103,23 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.add_space(cover_size * 0.08);
-            theme::text(ui, hero.kind.as_ref(), theme::medium(12.5), palette.text);
-            let mut size = if cover_size > 200.0 { 56.0 } else { 40.0 };
+            theme::text(
+                ui,
+                hero.kind.as_ref(),
+                theme::medium(12.5),
+                if app.settings.is_raccoon_hollow() {
+                    palette.warning
+                } else {
+                    palette.text
+                },
+            );
+            let mut size = if app.settings.is_raccoon_hollow() {
+                32.0
+            } else if cover_size > 200.0 {
+                56.0
+            } else {
+                40.0
+            };
             loop {
                 let galley = ui.painter().layout_no_wrap(
                     hero.title.to_string(),
@@ -171,10 +188,11 @@ pub fn actions_row(
     app: &mut App,
     ui: &mut egui::Ui,
     actions: Actions<'_>,
-    filter: Option<&mut String>,
+    mut filter: Option<&mut String>,
 ) {
     let palette = app.palette;
     let locale = app.locale;
+    let stacked_filter = app.settings.is_raccoon_hollow() && ui.available_width() < 440.0;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
@@ -357,7 +375,7 @@ pub fn actions_row(
                     }
                 });
         }
-        if let Some(filter) = filter {
+        if !stacked_filter && let Some(filter) = filter.as_deref_mut() {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 widgets::search_field(
                     ui,
@@ -366,11 +384,27 @@ pub fn actions_row(
                     egui::Id::new(("collection-filter", actions.name)),
                     filter,
                     &gettext(locale, "Filter"),
-                    220.0,
+                    if app.settings.is_raccoon_hollow() {
+                        ui.available_width().min(220.0)
+                    } else {
+                        220.0
+                    },
                 );
             });
         }
     });
+    if stacked_filter && let Some(filter) = filter {
+        ui.add_space(8.0);
+        widgets::search_field(
+            ui,
+            &palette,
+            locale,
+            egui::Id::new(("collection-filter", actions.name)),
+            filter,
+            &gettext(locale, "Filter"),
+            ui.available_width().min(220.0),
+        );
+    }
     ui.add_space(14.0);
 }
 

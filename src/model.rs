@@ -1104,6 +1104,10 @@ pub enum Action {
     InstallUpdate,
     SettingsChanged,
     SetTheme(crate::settings::ThemeChoice),
+    SetAppearanceProfile(crate::settings::AppearanceProfile),
+    SetRaccoonSidebarWidth(f32),
+    SetRaccoonLyricsWidth(f32),
+    SetPlayerBarVisualizer(crate::settings::PlayerBarVis),
     /// Draw the interface in this language from the next frame on.
     SetLanguage(crate::settings::LanguageChoice),
     OpenThemesFolder,

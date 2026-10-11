@@ -292,6 +292,7 @@ pub struct App {
     #[cfg(any(test, feature = "demo"))]
     pub demo_windows_controls: bool,
     applied_dark: Option<bool>,
+    applied_appearance: Option<crate::settings::AppearanceProfile>,
     /// Reveals new colours from the middle of the window outwards.
     theme_transition: fastframe_theme::Transition,
     /// Whether colour changes are revealed. Tests that check which palette
@@ -417,6 +418,7 @@ pub struct App {
     uploaded_covers: std::collections::HashMap<String, crate::playlist_cover::PendingCover>,
     pub show_queue_panel: bool,
     pub show_lyrics_panel: bool,
+    classic_lyrics_panel: Option<bool>,
     pub lyrics_fullscreen: Option<bool>,
     pub lyrics_fullscreen_seen: bool,
     lyrics_fullscreen_restoring: Option<bool>,
@@ -751,6 +753,7 @@ impl App {
             .unwrap_or(Page::Home);
 
         let palette = settings.cached_palette().unwrap_or_else(Palette::dark);
+        let raccoon_lyrics = settings.is_raccoon_hollow() && !session.queue_open.unwrap_or(false);
         let mut app = Self {
             custom_themes: theme::Catalog::default(),
             dirs,
@@ -788,6 +791,7 @@ impl App {
             #[cfg(any(test, feature = "demo"))]
             demo_windows_controls: false,
             applied_dark: None,
+            applied_appearance: None,
             theme_transition: fastframe_theme::Transition::default(),
             reveal_theme_changes: true,
             auth: AuthStatus::Starting,
@@ -875,7 +879,8 @@ impl App {
             cover_uploads: HashMap::new(),
             uploaded_covers: Default::default(),
             show_queue_panel: session.queue_open.unwrap_or(false),
-            show_lyrics_panel: false,
+            show_lyrics_panel: raccoon_lyrics,
+            classic_lyrics_panel: raccoon_lyrics.then_some(false),
             lyrics_fullscreen: None,
             lyrics_fullscreen_seen: false,
             lyrics_fullscreen_restoring: None,
@@ -990,6 +995,7 @@ impl App {
         ctx.add_bytes_loader(std::sync::Arc::new(self.backend.art().clone()));
         ctx.set_theme(self.theme_preference());
         self.applied_dark = None;
+        self.applied_appearance = None;
         self.winamp.forget_textures();
         self.window_hidden = false;
         self.hide_intent = false;
@@ -1653,7 +1659,7 @@ impl App {
 
     /// The colour to tint the interface with, from the playing art.
     pub fn now_playing_tint(&self) -> Option<Color32> {
-        if !self.settings.accent_from_art {
+        if self.settings.is_raccoon_hollow() || !self.settings.accent_from_art {
             return None;
         }
         let now = self.now_playing()?;
@@ -3233,6 +3239,12 @@ impl App {
         self.settings.cached_palette()
     }
 
+    fn restore_classic_lyrics(&mut self) {
+        if let Some(visible) = self.classic_lyrics_panel.take() {
+            self.show_lyrics_panel = visible && !self.show_queue_panel;
+        }
+    }
+
     fn theme_preference(&self) -> egui::ThemePreference {
         if let Some(palette) = self.custom_palette() {
             return if palette.dark {
@@ -3274,11 +3286,16 @@ impl App {
                 Palette::light()
             }
         });
-        if self.applied_dark != Some(dark) || self.palette != palette {
+        let profile = self.settings.appearance_profile;
+        if self.applied_dark != Some(dark)
+            || self.palette != palette
+            || self.applied_appearance != Some(profile)
+        {
             // The first colours need no reveal, and the mini player's window
             // is drawn by its skin.
             if self.reveal_theme_changes
                 && self.applied_dark.is_some()
+                && self.applied_appearance == Some(profile)
                 && !self.settings.winamp_window
             {
                 self.theme_transition.begin(ctx);
@@ -3288,6 +3305,36 @@ impl App {
             }
             self.palette = palette;
             theme::apply(ctx, &self.palette);
+            theme::apply_profile(ctx, profile, self.applied_appearance != Some(profile));
+            if !cfg!(target_os = "macos")
+                && self.applied_appearance.is_some()
+                && self.applied_appearance != Some(profile)
+            {
+                let rgba = if self.settings.is_raccoon_hollow() {
+                    crate::util::raccoon_icon_rgba(128)
+                } else {
+                    crate::util::app_icon_rgba(128)
+                };
+                ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(
+                    egui::IconData {
+                        rgba,
+                        width: 128,
+                        height: 128,
+                    },
+                ))));
+            }
+            let previous_titlebar = self.settings.custom_titlebar
+                || self.applied_appearance
+                    == Some(crate::settings::AppearanceProfile::RaccoonHollow);
+            let titlebar = self.settings.custom_titlebar || self.settings.is_raccoon_hollow();
+            if previous_titlebar != titlebar && cfg!(any(windows, target_os = "linux")) {
+                crate::window::set_custom_titlebar(titlebar);
+                if !self.settings.winamp_window && self.applied_appearance.is_some() {
+                    self.switch_intent = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            self.applied_appearance = Some(profile);
             self.applied_dark = Some(dark);
             self.accents.clear();
             self.accent_pending.clear();
@@ -9118,6 +9165,8 @@ impl App {
                 self.mark_settings_dirty();
             }
             Action::SetTheme(choice) => {
+                self.restore_classic_lyrics();
+                self.settings.appearance_profile = crate::settings::AppearanceProfile::Classic;
                 self.settings.theme = choice;
                 self.settings.custom_theme = None;
                 self.settings.custom_theme_cache = None;
@@ -9132,8 +9181,10 @@ impl App {
                 ctx.request_repaint();
             }
             Action::SetCustomTheme(filename) => {
-                if let Some(theme) = self.custom_themes.find(&filename) {
-                    self.settings.custom_theme_cache = Some(theme.clone());
+                if let Some(theme) = self.custom_themes.find(&filename).cloned() {
+                    self.restore_classic_lyrics();
+                    self.settings.appearance_profile = crate::settings::AppearanceProfile::Classic;
+                    self.settings.custom_theme_cache = Some(theme);
                     self.settings.custom_theme = Some(filename);
                     self.mark_settings_dirty();
                     ctx.set_theme(self.theme_preference());
@@ -9300,7 +9351,7 @@ impl App {
             Action::SetCustomTitlebar(custom) => {
                 if self.settings.custom_titlebar != custom {
                     self.settings.custom_titlebar = custom;
-                    crate::window::set_custom_titlebar(custom);
+                    crate::window::set_custom_titlebar(custom || self.settings.is_raccoon_hollow());
                     self.mark_settings_dirty();
                     if !self.settings.winamp_window {
                         // Decorations are fixed at creation. Replace only the
@@ -9388,8 +9439,51 @@ impl App {
             // close-to-tray setting decides what follows.
             Action::CloseWindow => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Action::CyclePlayerBarVis => {
-                self.settings.player_bar_vis = self.settings.player_bar_vis.next();
+                let next = self.settings.player_bar_visualizer().next();
+                if self.settings.is_raccoon_hollow() {
+                    self.settings.raccoon_hollow.visualizer = next;
+                } else {
+                    self.settings.player_bar_vis = next;
+                }
                 self.settings_dirty = true;
+            }
+            Action::SetAppearanceProfile(profile) => {
+                if self.settings.appearance_profile == profile {
+                    return;
+                }
+                if profile == crate::settings::AppearanceProfile::RaccoonHollow {
+                    self.classic_lyrics_panel = Some(self.show_lyrics_panel);
+                } else {
+                    self.restore_classic_lyrics();
+                }
+                self.settings.appearance_profile = profile;
+                self.settings.custom_theme = None;
+                self.settings.custom_theme_cache = None;
+                if profile == crate::settings::AppearanceProfile::RaccoonHollow {
+                    self.settings.theme = ThemeChoice::Dark;
+                    if !self.show_queue_panel && !self.show_lyrics_panel {
+                        self.actions.push(Action::ToggleLyricsPanel);
+                    }
+                }
+                self.mark_settings_dirty();
+                ctx.set_theme(self.theme_preference());
+                self.apply_theme(ctx);
+            }
+            Action::SetRaccoonSidebarWidth(width) => {
+                self.settings.raccoon_hollow.sidebar_width = width.clamp(210.0, 600.0);
+                self.mark_settings_dirty();
+            }
+            Action::SetRaccoonLyricsWidth(width) => {
+                self.settings.raccoon_hollow.lyrics_width = width.clamp(280.0, 640.0);
+                self.mark_settings_dirty();
+            }
+            Action::SetPlayerBarVisualizer(mode) => {
+                if self.settings.is_raccoon_hollow() {
+                    self.settings.raccoon_hollow.visualizer = mode;
+                } else {
+                    self.settings.player_bar_vis = mode;
+                }
+                self.mark_settings_dirty();
             }
             Action::CycleVisualiser => {
                 self.settings.vis = self.settings.vis.next();
@@ -11376,6 +11470,50 @@ mod tests {
             app.toasts.len(),
             toasts + 1,
             "already local, nothing to explain"
+        );
+    }
+
+    #[test]
+    fn choosing_another_theme_restores_classic_panels_and_visualizer() {
+        let mut app = headless_app();
+        // Keep window decorations unchanged in this headless layout test.
+        app.settings.custom_titlebar = true;
+        let ctx = egui::Context::default();
+        app.settings.player_bar_vis = crate::settings::PlayerBarVis::Off;
+        app.show_lyrics_panel = false;
+        app.apply(
+            Action::SetAppearanceProfile(crate::settings::AppearanceProfile::RaccoonHollow),
+            &ctx,
+        );
+        app.apply_actions(&ctx);
+        assert!(app.show_lyrics_panel);
+        assert!(app.settings.is_raccoon_hollow());
+        assert_eq!(
+            app.settings.player_bar_visualizer(),
+            crate::settings::PlayerBarVis::Spectrum
+        );
+        app.apply(Action::SetRaccoonSidebarWidth(260.0), &ctx);
+        app.apply(Action::SetRaccoonLyricsWidth(350.0), &ctx);
+        app.apply(
+            Action::SetPlayerBarVisualizer(crate::settings::PlayerBarVis::Waveform),
+            &ctx,
+        );
+        app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
+        assert!(!app.settings.is_raccoon_hollow());
+        assert!(
+            !theme::is_pixel(&ctx),
+            "the full appearance changes immediately"
+        );
+        assert!(!app.show_lyrics_panel);
+        assert_eq!(
+            app.settings.player_bar_visualizer(),
+            crate::settings::PlayerBarVis::Off
+        );
+        assert_eq!(app.settings.raccoon_hollow.sidebar_width, 260.0);
+        assert_eq!(app.settings.raccoon_hollow.lyrics_width, 350.0);
+        assert_eq!(
+            app.settings.raccoon_hollow.visualizer,
+            crate::settings::PlayerBarVis::Waveform
         );
     }
 

@@ -44,11 +44,25 @@ pub(crate) fn end_tint_session(ctx: &egui::Context) {
     ctx.data_mut(|data| data.remove::<u64>(egui::Id::new(TINT_SESSION_ID)));
 }
 
+pub fn height(app: &App) -> f32 {
+    theme::PLAYER_BAR_HEIGHT
+        + if app.settings.is_raccoon_hollow() {
+            62.0
+        } else {
+            0.0
+        }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let fill = eased_fill(ui.ctx(), palette.panel, app.now_playing_tint());
+    let pixel = app.settings.is_raccoon_hollow();
+    let fill = if pixel {
+        palette.panel
+    } else {
+        eased_fill(ui.ctx(), palette.panel, app.now_playing_tint())
+    };
     egui::Panel::bottom("player-bar")
-        .exact_size(theme::PLAYER_BAR_HEIGHT)
+        .exact_size(height(app))
         .resizable(false)
         .show_separator_line(false)
         .frame(
@@ -57,10 +71,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 .inner_margin(Margin::symmetric(16, 0)),
         )
         .show(ui, |ui| {
-            let rect = ui.max_rect();
+            let full = ui.max_rect();
+            let rect = if pixel {
+                Rect::from_min_max(full.min + vec2(0.0, 62.0), full.max)
+            } else {
+                full
+            };
             let now = app.now_playing();
             // The whole bar, margins included, behind everything else.
-            let behind = rect.expand2(vec2(16.0, 0.0));
+            let behind = if pixel {
+                Rect::from_min_max(
+                    full.min + vec2(0.0, 8.0),
+                    pos2(full.right(), full.top() + 54.0),
+                )
+            } else {
+                rect.expand2(vec2(16.0, 0.0))
+            };
             if visualizer(app, ui, behind, now.as_ref()) {
                 ui.ctx().request_repaint_after(VIS_FRAME);
             }
@@ -86,7 +112,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.painter().hline(
                 rect.x_range(),
-                rect.top() + 0.5,
+                full.top() + 0.5,
                 egui::Stroke::new(1.0, palette.outline),
             );
             let width = rect.width();
@@ -123,7 +149,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>) -> bool {
     use crate::settings::PlayerBarVis;
     use crate::vis;
-    let mode = app.settings.player_bar_vis;
+    let mode = app.settings.player_bar_visualizer();
     let sounding = now.is_some_and(|now| (now.playing || now.loading) && now.local);
     let dark = ui.visuals().dark_mode;
     let (low, high) = vis_colours(app.now_playing_tint().unwrap_or(app.palette.accent), dark);
@@ -146,7 +172,11 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
                 .player_bar_analyser
                 .step(&samples, std::time::Instant::now());
             let peaks = app.player_bar_analyser.peaks();
-            spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
+            if app.settings.is_raccoon_hollow() {
+                pixel_spectrum(&painter, rect, &levels, &peaks, &app.palette);
+            } else {
+                spectrum(&painter, rect, &levels, &peaks, (low, high), strength);
+            }
             sounding || !app.player_bar_analyser.settled()
         }
         PlayerBarVis::Waveform => {
@@ -166,6 +196,53 @@ fn visualizer(app: &mut App, ui: &egui::Ui, rect: Rect, now: Option<&NowPlaying>
             true
         }
     }
+}
+
+/// Separate from the controls, with whole-pixel segments and held amber peaks.
+fn pixel_spectrum(
+    painter: &egui::Painter,
+    rect: Rect,
+    levels: &[f32],
+    peaks: &[f32],
+    palette: &theme::Palette,
+) {
+    let bands = levels.len();
+    if bands == 0 {
+        return;
+    }
+    let step = rect.width() / bands as f32;
+    let width = (step.floor() - 2.0).max(1.0);
+    let rows = ((rect.height() - 4.0) / 4.0).floor().max(1.0) as usize;
+    for (i, (&level, &peak)) in levels.iter().zip(peaks).enumerate() {
+        let x = (rect.left() + i as f32 * step).round();
+        let filled = pixel_segments(level, rows);
+        for row in 0..filled {
+            let y = rect.bottom().floor() - 3.0 - row as f32 * 4.0;
+            let color = if row < rows / 3 {
+                palette.outline
+            } else {
+                palette.accent
+            };
+            painter.rect_filled(
+                Rect::from_min_size(pos2(x, y), vec2(width, 2.0)),
+                0.0,
+                color,
+            );
+        }
+        let peak_rows = pixel_segments(peak, rows);
+        if peak_rows > 0 {
+            let y = rect.bottom().floor() - 4.0 - peak_rows as f32 * 4.0;
+            painter.rect_filled(
+                Rect::from_min_size(pos2(x, y), vec2(width, 2.0)),
+                0.0,
+                palette.warning,
+            );
+        }
+    }
+}
+
+fn pixel_segments(level: f32, rows: usize) -> usize {
+    (level.clamp(0.0, 1.0) * rows as f32).round() as usize
 }
 
 /// The visualizer's two colours: the cover's own for the bass, and the same
@@ -1078,5 +1155,49 @@ mod player_bar_tint_tests {
         // A yellow cover stays yellow, only deeper.
         let (low, _) = vis_colours(Color32::from_rgb(255, 240, 80), true);
         assert!(low.r() > low.b() && low.g() > low.b(), "{low:?}");
+    }
+}
+
+#[cfg(test)]
+mod pixel_tests {
+    use super::*;
+
+    #[test]
+    fn spectrum_levels_are_bounded_and_silence_has_no_segments() {
+        for rows in [1, 10, 32] {
+            assert_eq!(pixel_segments(-0.5, rows), 0);
+            assert_eq!(pixel_segments(0.0, rows), 0);
+            assert_eq!(pixel_segments(1.0, rows), rows);
+            assert_eq!(pixel_segments(2.0, rows), rows);
+            assert_eq!(
+                pixel_segments(0.5, rows),
+                (rows as f32 / 2.0).round() as usize
+            );
+        }
+    }
+
+    #[test]
+    fn spectrum_segments_and_peaks_stay_in_their_separate_strip() {
+        let ctx = egui::Context::default();
+        let strip = Rect::from_min_size(pos2(16.0, 8.0), vec2(900.0, 46.0));
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            pixel_spectrum(
+                ui.painter(),
+                strip,
+                &[0.0, 0.5, 1.0],
+                &[0.0, 0.8, 1.0],
+                &theme::Palette::raccoon_hollow(),
+            );
+        });
+        let mut count = 0;
+        for shape in &output.shapes {
+            if let egui::Shape::Rect(segment) = &shape.shape {
+                assert!(strip.contains_rect(segment.rect));
+                assert_eq!(segment.corner_radius, egui::CornerRadius::ZERO);
+                count += 1;
+            }
+        }
+        assert!(count > 0);
+        output.textures_delta.clear();
     }
 }

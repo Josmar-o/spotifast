@@ -499,13 +499,23 @@ fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Ent
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let pixel = app.settings.is_raccoon_hollow();
+    let panel_id = if pixel { "raccoon-sidebar" } else { "sidebar" };
+    let chosen_width = if pixel {
+        app.settings.raccoon_hollow.sidebar_width
+    } else {
+        app.settings.sidebar_width
+    };
     let expanded_art = has_expanded_art(app);
     let floating_art = app.settings.sidebar_grid && expanded_art;
     // The traffic lights float over the top-left of the sidebar now, so the
     // first nav row has to start below them.
-    let top = 12
-        + theme::titlebar_inset(ui.ctx()) as i8
-        + super::linux_left_controls_inset(ui.ctx()) as i8;
+    let top = if pixel {
+        12
+    } else {
+        12 + theme::titlebar_inset(ui.ctx()) as i8
+            + super::linux_left_controls_inset(ui.ctx()) as i8
+    };
     let beside = if app.show_queue_panel || app.show_lyrics_panel {
         theme::SIDE_PANEL_MIN_WIDTH
     } else {
@@ -513,14 +523,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     };
     let fit = super::yielding_panel(
         ui.ctx(),
-        "sidebar",
+        panel_id,
         super::SIDEBAR_MIN_WIDTH..=600.0,
-        app.settings.sidebar_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()) - beside,
+        chosen_width,
+        ui.available_width() - super::page_min_width(app, ui.ctx()) - beside,
     );
-    let panel = egui::Panel::left("sidebar")
+    let panel = egui::Panel::left(panel_id)
         .resizable(true)
-        .default_size(app.settings.sidebar_width)
+        .default_size(chosen_width)
         .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(Frame::new().fill(palette.panel).inner_margin(Margin {
@@ -530,6 +540,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             bottom: if expanded_art { 0 } else { 8 },
         }));
     let response = panel.show(ui, |ui| {
+        if pixel && !expanded_art {
+            egui::Panel::bottom("raccoon-sidebar-mascot")
+                .exact_size(68.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::NONE)
+                .show(ui, |ui| {
+                    let rect =
+                        Rect::from_min_size(ui.cursor().min + vec2(8.0, 8.0), Vec2::splat(48.0));
+                    super::raccoon::mascot(ui, rect);
+                });
+        }
         let art_rect = expanded_art.then(|| expanded_art_rect(ui));
         if let Some(rect) = art_rect.filter(|_| !floating_art) {
             reserve_expanded_art(ui, rect);
@@ -543,11 +565,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
     let width = response.response.rect.width();
-    if (width - app.settings.sidebar_width).abs() > 1.0
-        && super::panel_width_chosen(ui.ctx(), "sidebar", &fit)
-    {
-        app.settings.sidebar_width = width;
-        app.actions.push(Action::SettingsChanged);
+    if (width - chosen_width).abs() > 1.0 && super::panel_width_chosen(ui.ctx(), panel_id, &fit) {
+        if pixel {
+            app.actions.push(Action::SetRaccoonSidebarWidth(width));
+        } else {
+            app.settings.sidebar_width = width;
+            app.actions.push(Action::SettingsChanged);
+        }
     }
 }
 
@@ -835,7 +859,7 @@ fn nav_row(
         };
         let icon_rect =
             Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), Vec2::splat(22.0));
-        icon.image(color, 22.0).paint_at(ui, icon_rect);
+        theme::paint_icon(ui, icon, icon_rect, 22.0, color);
         ui.painter().text(
             pos2(rect.left() + 46.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -2031,6 +2055,17 @@ fn drop_row(app: &mut App, entries: &[Entry], pinned_rows: usize, slot: usize, k
 
 /// The purple-to-blue Liked Songs tile.
 pub fn liked_cover(ui: &egui::Ui, rect: Rect, radius: f32) {
+    if theme::is_pixel(ui.ctx()) {
+        let palette = theme::Palette::raccoon_hollow();
+        ui.painter().rect_filled(rect, 0.0, palette.accent);
+        super::raccoon::pixel_icon(
+            ui,
+            Icon::HeartFilled,
+            rect.shrink(rect.width() * 0.25),
+            palette.on_accent,
+        );
+        return;
+    }
     let texture_id = egui::Id::new("liked-cover-gradient");
     let texture = ui
         .data(|data| data.get_temp::<egui::TextureHandle>(texture_id))

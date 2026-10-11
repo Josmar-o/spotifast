@@ -35,16 +35,27 @@ fn blend(from: egui::Color32, to: egui::Color32, t: f32) -> egui::Color32 {
 
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
+    let pixel = app.settings.is_raccoon_hollow();
+    let panel_id = if pixel {
+        "raccoon-lyrics"
+    } else {
+        "lyrics-panel"
+    };
+    let chosen_width = if pixel {
+        app.settings.raccoon_hollow.lyrics_width
+    } else {
+        app.settings.lyrics_width
+    };
     let fit = super::yielding_panel(
         ui.ctx(),
-        "lyrics-panel",
+        panel_id,
         theme::SIDE_PANEL_MIN_WIDTH..=640.0,
-        app.settings.lyrics_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()),
+        chosen_width,
+        ui.available_width() - super::page_min_width(app, ui.ctx()),
     );
-    let panel = egui::Panel::right("lyrics-panel")
+    let panel = egui::Panel::right(panel_id)
         .resizable(true)
-        .default_size(app.settings.lyrics_width)
+        .default_size(chosen_width)
         .size_range(fit.range.clone())
         .show_separator_line(false)
         .frame(
@@ -59,7 +70,9 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             app.show_lyrics_panel,
             ui.available_width(),
         );
-        ui.add_space(window_controls.lyrics_top);
+        if !pixel {
+            ui.add_space(window_controls.lyrics_top);
+        }
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             theme::text(
@@ -113,11 +126,16 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         contents(app, ui);
     });
     let current_width = response.response.rect.width();
-    if (app.settings.lyrics_width - current_width).abs() > 1.0
-        && super::panel_width_chosen(ui.ctx(), "lyrics-panel", &fit)
+    if (chosen_width - current_width).abs() > 1.0
+        && super::panel_width_chosen(ui.ctx(), panel_id, &fit)
     {
-        app.settings.lyrics_width = current_width;
-        app.actions.push(Action::SettingsChanged);
+        if pixel {
+            app.actions
+                .push(Action::SetRaccoonLyricsWidth(current_width));
+        } else {
+            app.settings.lyrics_width = current_width;
+            app.actions.push(Action::SettingsChanged);
+        }
     }
 }
 
@@ -207,11 +225,22 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                     is_active,
                     LIGHT_UP_SECONDS,
                 );
-                let color = blend(quiet, palette.accent, lit);
-                let font = if lit > 0.5 {
-                    theme::bold(LINE_SIZE)
+                let pixel = app.settings.is_raccoon_hollow();
+                let color = if pixel {
+                    let resting = if active.is_some_and(|active| index < active) {
+                        palette.accent
+                    } else {
+                        palette.secondary.gamma_multiply(0.65)
+                    };
+                    blend(resting, palette.text, lit)
                 } else {
-                    theme::regular(LINE_SIZE)
+                    blend(quiet, palette.accent, lit)
+                };
+                let size = if pixel { 26.0 } else { LINE_SIZE };
+                let font = if lit > 0.5 {
+                    theme::bold(size)
+                } else {
+                    theme::regular(size)
                 };
                 // A timed line with no words is the band playing on.
                 let text = if line.text.is_empty() && lyrics.synced {

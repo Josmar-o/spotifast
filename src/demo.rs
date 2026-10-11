@@ -793,6 +793,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 play_here(app);
                 app.local.playback = crate::player::Playback::Paused;
             }
+            "raccoon-hollow" => {
+                app.settings.appearance_profile = crate::settings::AppearanceProfile::RaccoonHollow;
+                app.settings.theme = crate::settings::ThemeChoice::Dark;
+                app.show_queue_panel = false;
+                app.show_lyrics_panel = true;
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+            }
             "player-bar-spectrum" | "player-bar-waveform" => {
                 app.settings.player_bar_vis = if surface == "player-bar-spectrum" {
                     crate::settings::PlayerBarVis::Spectrum
@@ -1460,6 +1468,47 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    #[test]
+    fn raccoon_hollow_keeps_native_navigation_playback_and_panel_actions() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("raccoon-native-controls");
+        // This test changes content, without changing process-wide decorations.
+        app.settings.custom_titlebar = true;
+        app.apply(
+            Action::SetAppearanceProfile(crate::settings::AppearanceProfile::RaccoonHollow),
+            &ctx,
+        );
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(crate::theme::is_pixel(&ctx));
+        assert!(app.show_lyrics_panel);
+        let liked = accessible_node(&tree, "Liked Songs", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(liked, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.page(), &Page::LikedSongs);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let pause = accessible_node(&tree, "Pause", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(pause, AccessibleAction::Click, None)],
+        );
+        assert!(!app.believed_playing());
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let queue = accessible_node(&tree, "Queue", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(queue, AccessibleAction::Click, None)],
+        );
+        assert!(app.show_queue_panel);
+        assert!(!app.show_lyrics_panel);
+        app.backend.shutdown();
     }
 
     #[test]

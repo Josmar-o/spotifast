@@ -222,6 +222,23 @@ pub fn app_icon_rgba(size: usize) -> Vec<u8> {
     mark_rgba(size, true)
 }
 
+/// The user's Raccoon Hollow mark, decoded once and sampled on a pixel grid.
+pub fn raccoon_icon_rgba(size: usize) -> Vec<u8> {
+    static ICON: std::sync::OnceLock<image::RgbaImage> = std::sync::OnceLock::new();
+    let icon = ICON.get_or_init(|| {
+        image::load_from_memory(include_bytes!("../assets/raccoon-hollow/icon.png"))
+            .expect("the bundled Raccoon Hollow PNG is valid")
+            .into_rgba8()
+    });
+    image::imageops::resize(
+        icon,
+        size as u32,
+        size as u32,
+        image::imageops::FilterType::Nearest,
+    )
+    .into_raw()
+}
+
 /// Mixes two colours, `t` of the way from `a` to `b`.
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     let t = t.clamp(0.0, 1.0);

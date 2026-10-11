@@ -35,6 +35,28 @@ pub struct Palette {
 }
 
 impl Palette {
+    pub fn raccoon_hollow() -> Self {
+        Self {
+            dark: true,
+            window: Color32::from_rgb(0x15, 0x1c, 0x19),
+            panel: Color32::from_rgb(0x1c, 0x27, 0x21),
+            surface: Color32::from_rgb(0x28, 0x37, 0x2d),
+            surface_hover: Color32::from_rgb(0x34, 0x48, 0x35),
+            surface_active: Color32::from_rgb(0x3c, 0x51, 0x42),
+            outline: Color32::from_rgb(0x41, 0x53, 0x46),
+            text: Color32::from_rgb(0xea, 0xdf, 0xc6),
+            secondary: Color32::from_rgb(0xad, 0xb6, 0xa0),
+            dim: Color32::from_rgb(0x87, 0x95, 0x7f),
+            accent: Color32::from_rgb(0xa7, 0xc7, 0x86),
+            accent_hover: Color32::from_rgb(0xb9, 0xd9, 0x9a),
+            on_accent: Color32::from_rgb(0x15, 0x1c, 0x19),
+            danger: Color32::from_rgb(0xe6, 0x9a, 0x86),
+            warning: Color32::from_rgb(0xc8, 0x9b, 0x62),
+            overlay: Color32::from_rgb(0x24, 0x33, 0x29),
+            shadow: Color32::from_rgba_unmultiplied(0x0d, 0x13, 0x10, 170),
+        }
+    }
+
     pub fn dark() -> Self {
         Self {
             dark: true,
@@ -263,6 +285,56 @@ pub fn apply(ctx: &egui::Context, palette: &Palette) {
 /// Applies a palette to this view and children without changing global style.
 pub fn apply_local(ui: &mut egui::Ui, palette: &Palette) {
     apply_to_style(ui.style_mut(), palette);
+    if is_pixel(ui.ctx()) {
+        apply_pixel_style(ui.style_mut());
+    }
+}
+
+pub fn is_pixel(ctx: &egui::Context) -> bool {
+    ctx.data(|data| data.get_temp::<bool>(egui::Id::new("raccoon-hollow-profile")))
+        .unwrap_or(false)
+}
+
+pub fn corner(ui: &egui::Ui, radius: u8) -> CornerRadius {
+    CornerRadius::same(if is_pixel(ui.ctx()) { 0 } else { radius })
+}
+
+pub fn rounding(ui: &egui::Ui, radius: f32) -> f32 {
+    if is_pixel(ui.ctx()) { 0.0 } else { radius }
+}
+
+pub fn apply_profile(
+    ctx: &egui::Context,
+    profile: crate::settings::AppearanceProfile,
+    fonts_changed: bool,
+) {
+    let pixel = profile == crate::settings::AppearanceProfile::RaccoonHollow;
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("raccoon-hollow-profile"), pixel));
+    if fonts_changed {
+        install_profile_fonts(ctx, pixel);
+    }
+    if pixel {
+        let mut style = (*ctx.global_style()).clone();
+        apply_pixel_style(&mut style);
+        ctx.set_global_style(style);
+    }
+}
+
+fn apply_pixel_style(style: &mut egui::Style) {
+    let visuals = &mut style.visuals;
+    visuals.window_corner_radius = CornerRadius::ZERO;
+    visuals.menu_corner_radius = CornerRadius::ZERO;
+    visuals.window_shadow.blur = 0;
+    visuals.popup_shadow.blur = 0;
+    for widget in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+        &mut visuals.widgets.noninteractive,
+    ] {
+        widget.corner_radius = CornerRadius::ZERO;
+    }
 }
 
 fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
@@ -372,11 +444,26 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
 /// installed faces for the scripts Inter lacks, drawn the way the desktop
 /// renders text.
 fn install_fonts(ctx: &egui::Context) {
+    install_profile_fonts(ctx, false);
+}
+
+fn install_profile_fonts(ctx: &egui::Context, pixel: bool) {
     let emoji = egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf"));
     let mut fonts = fastframe_fonts::FontSetup::default()
         .companion("noto_emoji", std::sync::Arc::new(emoji))
         .definitions();
     text_rendering().apply_to(&mut fonts);
+    if pixel {
+        fonts.font_data.insert(
+            "pixelify".into(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                "../assets/fonts/PixelifySans.ttf"
+            ))),
+        );
+        for family in fonts.families.values_mut() {
+            family.insert(0, "pixelify".into());
+        }
+    }
     ctx.set_fonts(fonts);
 }
 
@@ -480,7 +567,13 @@ fastframe_icons::icons! {
 
 /// A static icon.
 pub fn icon(ui: &mut egui::Ui, icon: Icon, size: f32, color: Color32) -> Response {
-    ui.add(icon.image(color, size))
+    if is_pixel(ui.ctx()) {
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+        paint_icon(ui, icon, rect, size, color);
+        response
+    } else {
+        ui.add(icon.image(color, size))
+    }
 }
 
 /// Paints an icon centred in `rect` without allocating space.
@@ -489,7 +582,9 @@ pub fn paint_icon(ui: &egui::Ui, icon: Icon, rect: egui::Rect, size: f32, color:
         rect.center() + play_glyph_offset(icon, size),
         Vec2::splat(size),
     );
-    icon.image(color, size).paint_at(ui, icon_rect);
+    if !is_pixel(ui.ctx()) || !crate::ui::raccoon::pixel_icon(ui, icon, icon_rect, color) {
+        icon.image(color, size).paint_at(ui, icon_rect);
+    }
 }
 
 /// Make keyboard focus visible without changing the control's layout.
@@ -497,7 +592,7 @@ pub fn focus_ring(ui: &egui::Ui, response: &Response) {
     if response.has_focus() {
         ui.painter().rect_stroke(
             response.rect.expand(2.0),
-            4.0,
+            rounding(ui, 4.0),
             ui.visuals().selection.stroke,
             egui::StrokeKind::Outside,
         );
@@ -561,18 +656,29 @@ pub fn logo(ui: &egui::Ui, center: egui::Pos2, diameter: f32) {
     let ppp = ui.ctx().pixels_per_point();
     // The raster keeps two pixels of margin on each side of the disc.
     let pixels = (diameter * ppp).round() as usize + 4;
-    let id = egui::Id::new(("spotifast-logo", pixels));
+    let pixel = is_pixel(ui.ctx());
+    let id = egui::Id::new(("spotifast-logo", pixels, pixel));
     let texture = ui
         .ctx()
         .data(|data| data.get_temp::<egui::TextureHandle>(id))
         .unwrap_or_else(|| {
             let image = egui::ColorImage::from_rgba_unmultiplied(
                 [pixels, pixels],
-                &crate::util::app_icon_rgba(pixels),
+                &if pixel {
+                    crate::util::raccoon_icon_rgba(pixels)
+                } else {
+                    crate::util::app_icon_rgba(pixels)
+                },
             );
-            let texture =
-                ui.ctx()
-                    .load_texture("spotifast-logo", image, egui::TextureOptions::LINEAR);
+            let texture = ui.ctx().load_texture(
+                "spotifast-logo",
+                image,
+                if pixel {
+                    egui::TextureOptions::NEAREST
+                } else {
+                    egui::TextureOptions::LINEAR
+                },
+            );
             ui.ctx()
                 .data_mut(|data| data.insert_temp(id, texture.clone()));
             texture
@@ -605,12 +711,18 @@ pub fn circle_button(
         let grow = if hovered { 1.05 } else { 1.0 };
         let radius = diameter / 2.0 * grow;
         let fill = if hovered { fill_hover } else { fill };
-        ui.painter().circle_filled(rect.center(), radius, fill);
+        if is_pixel(ui.ctx()) {
+            ui.painter().rect_filled(rect, 0.0, fill);
+        } else {
+            ui.painter().circle_filled(rect.center(), radius, fill);
+        }
         let icon_size = diameter * 0.46;
         let offset = play_glyph_offset(icon, icon_size);
         let icon_rect =
             egui::Rect::from_center_size(rect.center() + offset, Vec2::splat(icon_size));
-        icon.image(icon_color, icon_size).paint_at(ui, icon_rect);
+        if !is_pixel(ui.ctx()) || !crate::ui::raccoon::pixel_icon(ui, icon, icon_rect, icon_color) {
+            icon.image(icon_color, icon_size).paint_at(ui, icon_rect);
+        }
     }
     focus_ring(ui, &response);
     if tooltip.is_empty() {
@@ -669,7 +781,7 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
     });
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
-        let radius = rect.height() / 2.0;
+        let radius = rounding(ui, rect.height() / 2.0);
         if primary {
             let fill = if hovered {
                 palette.accent_hover
@@ -774,7 +886,8 @@ fn soft_button_inner(
         } else {
             palette.surface
         };
-        ui.painter().rect_filled(rect, rect.height() / 2.0, fill);
+        ui.painter()
+            .rect_filled(rect, rounding(ui, rect.height() / 2.0), fill);
         let mut x = rect.left() + padding.x;
         if let Some(icon) = icon {
             let icon = if dismiss.is_some() && hovered {
@@ -1052,6 +1165,39 @@ mod tests {
         });
         output.textures_delta.clear();
         assert!(!ctx.global_style().visuals.dark_mode);
+    }
+
+    #[test]
+    fn switching_profiles_restores_the_original_fonts_and_corners() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        apply(&ctx, &Palette::raccoon_hollow());
+        apply_profile(
+            &ctx,
+            crate::settings::AppearanceProfile::RaccoonHollow,
+            true,
+        );
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert_eq!(corner(ui, 8), CornerRadius::ZERO);
+        })
+        .textures_delta
+        .clear();
+        let fonts = ctx.fonts(|fonts| fonts.definitions().clone());
+        for weight in fastframe_fonts::Weight::ALL {
+            assert_eq!(fonts.families[&weight.family()][0], "pixelify");
+        }
+        apply(&ctx, &Palette::light());
+        apply_profile(&ctx, crate::settings::AppearanceProfile::Classic, true);
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert_eq!(corner(ui, 8), CornerRadius::same(8));
+            assert!(!ui.visuals().dark_mode);
+        })
+        .textures_delta
+        .clear();
+        let fonts = ctx.fonts(|fonts| fonts.definitions().clone());
+        for weight in fastframe_fonts::Weight::ALL {
+            assert_eq!(fonts.families[&weight.family()][0], weight.name());
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod login;
 mod lyrics;
 pub mod player_bar;
 pub mod queue;
+pub(crate) mod raccoon;
 pub mod radio;
 pub mod search;
 pub mod settings;
@@ -63,6 +64,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     }
     player_bar::show(app, ui);
+    if app.settings.is_raccoon_hollow() && app.lyrics_fullscreen.is_none() {
+        raccoon::header(app, ui);
+    }
     if app.lyrics_fullscreen.is_some() {
         lyrics::fullscreen(app, ui);
     } else {
@@ -82,7 +86,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     dialogs::show(app, ctx);
     update::show(app, ctx);
     widgets::drag_ghost(ctx, &app.palette, app.locale);
-    toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);
+    toasts(app, ctx, player_bar::height(app) + 16.0);
     window_controls(ui, &app.palette, app.locale);
     window_resize(ui);
 }
@@ -99,6 +103,15 @@ fn main_min_width(page: f32, sidebar: bool, right_panel: bool) -> f32 {
     (sidebar + right + page).max(crate::window::MAIN_MIN_SIZE[0])
 }
 
+/// Raccoon Hollow puts search above all panels, so the page needs only its content width.
+pub(super) fn page_min_width(app: &App, ctx: &Context) -> f32 {
+    if app.settings.is_raccoon_hollow() {
+        250.0
+    } else {
+        topbar::least_width(ctx)
+    }
+}
+
 /// The sidebar's narrowest width.
 pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 210.0;
 
@@ -111,7 +124,7 @@ fn keep_room_for_panels(app: &App, ctx: &Context) {
         return;
     }
     let width = main_min_width(
-        topbar::least_width(ctx),
+        page_min_width(app, ctx),
         app.settings.sidebar_visible,
         app.show_queue_panel || app.show_lyrics_panel,
     )
@@ -210,6 +223,9 @@ where
 }
 
 fn page_tint(app: &mut App) -> Option<Color32> {
+    if app.settings.is_raccoon_hollow() {
+        return None;
+    }
     let page = app.page().clone();
     let image = match &page {
         Page::Playlist(id) => app
@@ -278,7 +294,9 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             // colour, which shows as a pale band over a cover's tint; the
             // page casts a shadow under the header instead.
             ui.spacing_mut().scroll.fade.strength = 0.0;
-            topbar::show(app, ui);
+            if !app.settings.is_raccoon_hollow() {
+                topbar::show(app, ui);
+            }
             let page = app.page().clone();
             let scroll = crate::autoscroll::show(
                 ui,
@@ -726,6 +744,11 @@ fn toasts(app: &mut App, ctx: &egui::Context, bottom_offset: f32) {
 #[cfg(test)]
 mod window_chrome_tests {
     use super::*;
+
+    #[test]
+    fn the_full_width_header_leaves_room_for_three_columns_at_the_minimum_size() {
+        assert_eq!(main_min_width(250.0, true, true), 760.0);
+    }
 
     #[test]
     fn chrome_visibility_matches_window_state() {

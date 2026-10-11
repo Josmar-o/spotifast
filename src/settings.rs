@@ -47,6 +47,42 @@ pub enum ThemeChoice {
     System,
 }
 
+/// Bundled interface profiles are separate from colour-only palette files.
+/// Older versions ignore this field and still read the ordinary theme choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppearanceProfile {
+    RaccoonHollow,
+    #[default]
+    #[serde(other)]
+    Classic,
+}
+
+impl AppearanceProfile {
+    pub fn is_classic(&self) -> bool {
+        *self == Self::Classic
+    }
+}
+
+/// Keep this profile's panel sizes and visualizer independent of other themes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RaccoonLayout {
+    pub sidebar_width: f32,
+    pub lyrics_width: f32,
+    pub visualizer: PlayerBarVis,
+}
+
+impl Default for RaccoonLayout {
+    fn default() -> Self {
+        Self {
+            sidebar_width: 220.0,
+            lyrics_width: 320.0,
+            visualizer: PlayerBarVis::Spectrum,
+        }
+    }
+}
+
 /// Whether a Home shelf is drawn. Hidden shelves still refresh normally.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -241,6 +277,9 @@ pub struct Settings {
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
     pub theme: ThemeChoice,
+    #[serde(skip_serializing_if = "AppearanceProfile::is_classic")]
+    pub appearance_profile: AppearanceProfile,
+    pub raccoon_hollow: RaccoonLayout,
     /// The interface language; older files without it follow the system.
     pub language: LanguageChoice,
     /// Filename selected from the local themes directory.
@@ -425,6 +464,8 @@ impl Default for Settings {
             audio_cache: true,
             audio_cache_mb: 1024,
             theme: ThemeChoice::System,
+            appearance_profile: AppearanceProfile::Classic,
+            raccoon_hollow: RaccoonLayout::default(),
             language: LanguageChoice::System,
             custom_theme: None,
             custom_theme_cache: None,
@@ -499,7 +540,22 @@ fn default_buffer_ms() -> u32 {
 }
 
 impl Settings {
+    pub fn is_raccoon_hollow(&self) -> bool {
+        self.appearance_profile == AppearanceProfile::RaccoonHollow
+    }
+
+    pub fn player_bar_visualizer(&self) -> PlayerBarVis {
+        if self.is_raccoon_hollow() {
+            self.raccoon_hollow.visualizer
+        } else {
+            self.player_bar_vis
+        }
+    }
+
     pub(crate) fn cached_palette(&self) -> Option<crate::theme::Palette> {
+        if self.is_raccoon_hollow() {
+            return Some(crate::theme::Palette::raccoon_hollow());
+        }
         let theme = if self.custom_theme.is_some() {
             self.custom_theme_cache.as_ref()
         } else if self.theme == ThemeChoice::System {
@@ -1629,5 +1685,44 @@ mod session_tests {
         );
         assert!(!path.with_extension("json.tmp").exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+
+    #[test]
+    fn older_and_future_profiles_fall_back_to_classic() {
+        for json in [
+            r#"{"theme":"light"}"#,
+            r#"{"theme":"light","appearance_profile":"future"}"#,
+        ] {
+            let settings: Settings = serde_json::from_str(json).unwrap();
+            assert!(!settings.is_raccoon_hollow());
+            assert_eq!(settings.theme, ThemeChoice::Light);
+            assert_eq!(settings.player_bar_visualizer(), PlayerBarVis::Off);
+        }
+    }
+
+    #[test]
+    fn the_profile_saves_its_layout_without_overwriting_classic_preferences() {
+        let mut settings = Settings {
+            appearance_profile: AppearanceProfile::RaccoonHollow,
+            player_bar_vis: PlayerBarVis::Waveform,
+            sidebar_width: 380.0,
+            ..Settings::default()
+        };
+        settings.raccoon_hollow.sidebar_width = 240.0;
+        settings.raccoon_hollow.lyrics_width = 340.0;
+        let json = serde_json::to_string(&settings).unwrap();
+        let mut restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(restored.cached_palette().unwrap().dark);
+        assert_eq!(restored.player_bar_visualizer(), PlayerBarVis::Spectrum);
+        assert_eq!(restored.raccoon_hollow.sidebar_width, 240.0);
+        assert_eq!(restored.raccoon_hollow.lyrics_width, 340.0);
+        restored.appearance_profile = AppearanceProfile::Classic;
+        assert_eq!(restored.player_bar_visualizer(), PlayerBarVis::Waveform);
+        assert_eq!(restored.sidebar_width, 380.0);
     }
 }

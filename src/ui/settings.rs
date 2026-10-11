@@ -900,12 +900,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 theme_buttons_width,
                 |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                        let selected = app
-                            .settings
-                            .custom_theme
-                            .as_deref()
-                            .map(|filename| fastframe_theme::display_name(filename).into())
-                            .unwrap_or_else(|| app.settings.theme.label(locale));
+                        let selected = if app.settings.is_raccoon_hollow() {
+                            std::borrow::Cow::Borrowed("Raccoon Hollow")
+                        } else {
+                            app.settings
+                                .custom_theme
+                                .as_deref()
+                                .map(|filename| fastframe_theme::display_name(filename).into())
+                                .unwrap_or_else(|| app.settings.theme.label(locale))
+                        };
                         let response = egui::ComboBox::from_id_salt("appearance_theme")
                             .selected_text(selected.as_ref())
                             .width(200.0_f32.min(ui.available_width()))
@@ -913,7 +916,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 for choice in ThemeChoice::ALL {
                                     if ui
                                         .selectable_label(
-                                            app.settings.custom_theme.is_none()
+                                            !app.settings.is_raccoon_hollow()
+                                                && app.settings.custom_theme.is_none()
                                                 && app.settings.theme == choice,
                                             choice.label(locale).as_ref(),
                                         )
@@ -922,14 +926,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                         app.actions.push(Action::SetTheme(choice));
                                     }
                                 }
+                                if ui
+                                    .selectable_label(
+                                        app.settings.is_raccoon_hollow(),
+                                        "Raccoon Hollow",
+                                    )
+                                    .clicked()
+                                {
+                                    app.actions.push(Action::SetAppearanceProfile(
+                                        crate::settings::AppearanceProfile::RaccoonHollow,
+                                    ));
+                                }
                                 if app.custom_themes.picker_themes().next().is_some() {
                                     ui.separator();
                                 }
                                 for theme in app.custom_themes.picker_themes() {
                                     if ui
                                         .selectable_label(
-                                            app.settings.custom_theme.as_deref()
-                                                == Some(theme.filename.as_str()),
+                                            !app.settings.is_raccoon_hollow()
+                                                && app.settings.custom_theme.as_deref()
+                                                    == Some(theme.filename.as_str()),
                                             fastframe_theme::display_name(&theme.filename),
                                         )
                                         .clicked()
@@ -1039,13 +1055,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 &palette,
                                 None,
                                 label,
-                                app.settings.player_bar_vis == mode,
+                                app.settings.player_bar_visualizer() == mode,
                             )
                             .clicked()
-                                && app.settings.player_bar_vis != mode
+                                && app.settings.player_bar_visualizer() != mode
                             {
-                                app.settings.player_bar_vis = mode;
-                                changed = true;
+                                app.actions.push(Action::SetPlayerBarVisualizer(mode));
                             }
                         };
                         if ui.available_width() >= choices_width {

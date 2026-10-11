@@ -228,6 +228,8 @@ main fields are:
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
 | `language` | `system` | Since 0.10.0: the interface language. `system` follows the operating system's preferred languages and falls back to English; a tag such as `es`, `de-DE`, `pt-BR` or `zh-Hant` selects that language. An unknown tag follows the system |
+| `appearance_profile` | `classic` | Built-in full appearance: `classic` or `raccoon-hollow`; independent of JSON palettes |
+| `raccoon_hollow` | sidebar `220`, lyrics `320`, visualizer `spectrum` | Separate panel widths and player bar visualizer for Raccoon Hollow |
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
@@ -316,6 +318,8 @@ update badge for checking its layout. `personal-app` shows the personal Spotify
 app introduction.
 `signed-out` and `connecting` show the sign-in card before and while the
 session connects.
+`raccoon-hollow` selects the bundled dark pixel appearance with sample lyrics.
+Combine it with `player-bar-spectrum` to capture its separate spectrum strip.
 `player-bar-spectrum` and `player-bar-waveform` play a fixed, music-like
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen
@@ -388,7 +392,22 @@ it when it changes. Saved Dark,
 Light and custom choices are preserved when updating. The picker starts with
 **Follow system**, **Light**, and **Dark**, then a separator. **Omarchy** comes
 next when the integration is available, followed by the other local palettes.
-Themes change colors and keep the app's existing fonts.
+JSON themes change colors and keep the app's existing fonts.
+
+**Raccoon Hollow** is also available in the picker as a built-in full appearance.
+It uses a dark forest palette, Pixelify Sans with the existing language and emoji
+fallbacks, square controls, a raccoon sprite, a full-width search header, and a
+lyrics panel beside the library page. Its segmented spectrum occupies its own
+strip above the playback controls. It reads the same local, post-equalizer,
+pre-volume signal as the other visualizers. Spotify Connect playback on another
+device does not provide a local signal.
+The sidebar and lyrics widths and visualizer choice are saved separately, so
+choosing another appearance restores the ordinary layout and visualizer setting.
+Queue, lyrics, navigation, and playback controls retain their existing actions.
+Raccoon Hollow is dark only and keeps its forest colors when cover art changes.
+The built-in profile is compiled into Spotifast; a JSON palette or a Winamp skin
+cannot define this layout or replace the desktop launcher icon.
+
 **How to make a theme**, beside the picker, opens this section. The
 **Open themes folder** icon button beside the picker creates the folder if
 needed and opens it in your file

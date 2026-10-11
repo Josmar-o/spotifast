@@ -44,7 +44,7 @@ struct Cli {
 
     /// Extra demo surfaces: a comma-separated list of `queue`, `playing-next`,
     /// `devices`, `shortcuts`, `create`, `light`, `focus`, `update`, `personal-app`,
-    /// `windows-taskbar`, `german`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
+    /// `windows-taskbar`, `german`, `raccoon-hollow`, `lyrics`, `lyrics-fullscreen`, `collection-loading`,
     /// `shuffle-selected`, `shuffle-started`, `undated-mix`, `signed-out`, `connecting`, `library-list`,
     /// `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
     /// or `library-grid-wide`.
@@ -450,7 +450,9 @@ pub(crate) fn run() -> eframe::Result<()> {
     }
     #[cfg(target_os = "linux")]
     spotifast::window::init_linux_window_controls();
-    spotifast::window::set_custom_titlebar(settings.custom_titlebar);
+    spotifast::window::set_custom_titlebar(
+        settings.custom_titlebar || settings.is_raccoon_hollow(),
+    );
     // Colour emoji: the fonts are found off this thread. A demo capture
     // draws every picture in the frame that shows it.
     #[cfg(feature = "demo")]
@@ -573,7 +575,14 @@ pub(crate) fn run() -> eframe::Result<()> {
         };
         #[cfg(not(feature = "demo"))]
         let options = native_options(false, mini, None);
-        let options = profile_options(options);
+        let mut options = profile_options(options);
+        if !cfg!(target_os = "macos") && lease.peek(|app| app.settings.is_raccoon_hollow()) {
+            options.viewport = options.viewport.with_icon(egui::IconData {
+                rgba: util::raccoon_icon_rgba(128),
+                width: 128,
+                height: 128,
+            });
+        }
         let persist_memory = options.persist_window;
         #[cfg(windows)]
         let thumbbar_enabled = desktop_surfaces && options.viewport.taskbar != Some(false);

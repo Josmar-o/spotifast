@@ -41,7 +41,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         "queue-panel",
         theme::SIDE_PANEL_MIN_WIDTH..=560.0,
         app.settings.queue_width,
-        ui.available_width() - super::topbar::least_width(ui.ctx()),
+        ui.available_width() - super::page_min_width(app, ui.ctx()),
     );
     let panel = egui::Panel::right("queue-panel")
         .resizable(true)
@@ -60,7 +60,9 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
             app.show_lyrics_panel,
             ui.available_width(),
         );
-        ui.add_space(window_controls.queue_top);
+        if !app.settings.is_raccoon_hollow() {
+            ui.add_space(window_controls.queue_top);
+        }
         // Measure buttons first and give the remaining width to the chips.
         // Without `shrink_left`, wrapped chips can overlap the close button.
         let tab = app.queue_tab;

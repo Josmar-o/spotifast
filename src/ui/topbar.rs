@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, CornerRadius, Galley, Layout, Sense, Vec2, pos2, vec2};
+use egui::{Align, Galley, Layout, Sense, Vec2, pos2, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
@@ -132,7 +132,7 @@ fn badge(
     });
     ui.painter().rect_filled(
         rect,
-        CornerRadius::same(14),
+        theme::corner(ui, 14),
         palette.accent.gamma_multiply(0.16),
     );
     let icon_center = if labels {
@@ -175,7 +175,11 @@ fn nav_button(
         } else {
             egui::Color32::from_black_alpha(20)
         };
-        ui.painter().circle_filled(rect.center(), 16.0, fill);
+        if theme::is_pixel(ui.ctx()) {
+            ui.painter().rect_filled(rect, 0.0, fill);
+        } else {
+            ui.painter().circle_filled(rect.center(), 16.0, fill);
+        }
         let color = if !enabled {
             palette.dim
         } else if response.hovered() {
@@ -198,8 +202,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let width = ui.available_width();
     let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
-        app.show_queue_panel,
-        app.show_lyrics_panel,
+        app.show_queue_panel && !app.settings.is_raccoon_hollow(),
+        app.show_lyrics_panel && !app.settings.is_raccoon_hollow(),
         width,
     );
     if !app.settings.sidebar_visible {
@@ -385,7 +389,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         palette.surface
                     };
-                    ui.painter().circle_filled(rect.center(), 18.0, fill);
+                    if app.settings.is_raccoon_hollow() {
+                        ui.painter().rect_filled(rect, 0.0, fill);
+                    } else {
+                        ui.painter().circle_filled(rect.center(), 18.0, fill);
+                    }
                     let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(28.0));
                     match avatar.as_deref() {
                         Some(url) => super::widgets::paint_cover(
@@ -404,8 +412,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 .unwrap_or('?')
                                 .to_uppercase()
                                 .to_string();
-                            ui.painter()
-                                .circle_filled(inner.center(), 14.0, palette.accent);
+                            if app.settings.is_raccoon_hollow() {
+                                ui.painter().rect_filled(inner, 0.0, palette.accent);
+                            } else {
+                                ui.painter()
+                                    .circle_filled(inner.center(), 14.0, palette.accent);
+                            }
                             ui.painter().text(
                                 inner.center(),
                                 egui::Align2::CENTER_CENTER,
