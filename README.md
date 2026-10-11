@@ -61,6 +61,11 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Other Linux** | Find Flatpak, AppImage, Nix, and other options on the [Download page](https://spotifast.rocks/download/). |
 | **From source** | Follow [Build from source](https://spotifast.rocks/getting-started/#build-from-source) for dependencies and commands. |
 
+Built-in update downloads verify the Ed25519 signature of `checksums.txt`
+against the embedded publisher key before downloading an artifact. Missing or
+invalid signatures are rejected. See [How it connects](https://spotifast.rocks/how-it-connects/)
+for the update process.
+
 ## Start listening
 
 1. Open Spotifast and choose **Sign in with Spotify**. Approve access in your
